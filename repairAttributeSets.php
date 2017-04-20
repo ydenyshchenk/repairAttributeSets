@@ -42,6 +42,8 @@ $moduleResource = $objectManager->get('Magento\Framework\Module\ModuleResource')
 /** @var \Magento\Framework\DB\Adapter\Pdo\Mysql $connection */
 $connection = $moduleResource->getConnection();
 
+$connection->query('SET `foreign_key_checks` = 0;');
+
 $eavEntityTypeCodeToId = array(
     'customer' => 1,
     'customer_address' => 2,
@@ -189,8 +191,12 @@ $attributeTypeIdToSetId = array(
     9 => 9
 );
 
+$multipleAttributeSetsAllowed = array(
+    4 => true
+);
+
 $select->reset();
-$select->from(array('eas' => $eavAttributeSetTable))->order('entity_type_id');
+$select->from(array('eas' => $eavAttributeSetTable))->order(array('entity_type_id', 'attribute_set_name'));
 $eavAttributeSetRaw = $connection->query($select)->fetchAll();
 
 $eavAttributeSetById = array();
@@ -217,15 +223,19 @@ foreach ($attributeTypeIdToSetId as $typeId => $setId) {
     $insertedCount = 0;
     foreach ($attributeSets as $attributeSet) {
         $data = $attributeSet;
+        $oldId = (int)$data['attribute_set_id'];
         if ($insertedCount == 0) {
             $id = $attributeTypeIdToSetId[$typeId];
             $usedIds[] = $id;
-            $oldId = (int)$data['attribute_set_id'];
             $mapOldIdsToNewIds[$oldId] = $id;
             $data['attribute_set_id'] = $id;
             $eavAttributeSetRepaired[$id] = $data;
         } else {
-            $eavAttributeSetRepairedOther[] = $data;
+            if (!empty($multipleAttributeSetsAllowed[$typeId])) {
+                $eavAttributeSetRepairedOther[] = $data;
+            } else {
+                $mapOldIdsToNewIds[$oldId] = $id;
+            }
         }
         $insertedCount++;
     }
@@ -289,6 +299,8 @@ if ($mapOldIdsToNewIds && $eavAttributeSetRepaired) {
         }
     }
 }
+
+$connection->query('SET `foreign_key_checks` = 1;');
 
 $timeEnd = microtime(true);
 $timeDiff = $timeEnd - $timeStart;
